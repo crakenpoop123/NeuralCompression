@@ -11,7 +11,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Init some variables about the model
 learning_rate = 0.001
-num_epochs = 3
+num_epochs = 10
 batch = 1000
 saved_images = torch.zeros([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
@@ -182,7 +182,6 @@ def view_imgs():
         plt.subplot(2, 3, i + 1)
         plt.imshow(model_saved_images[i])
 
-    # print("test print of an output img")
 
     plt.show()
 
