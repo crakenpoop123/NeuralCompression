@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Init some variables about the model
-learning_rate = 0.001
-num_epochs = 10
+learning_rate = 0.002
+num_epochs = 15
 batch = 1000
 saved_images = torch.zeros([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
@@ -51,7 +51,7 @@ convs_out_channels = 27
 
 input_size = 32 * 32 * 3
 hidden_in_size = 26 * 26 * convs_out_channels
-hidden_size = 8 * 8
+hidden_size = 16 * 16
 large_hidden_size = 16 * 16
 
 class NeuralNet(nn.Module):
@@ -75,6 +75,8 @@ class NeuralNet(nn.Module):
         self.large_hidden_layer = nn.Linear(in_features=hidden_size, out_features=large_hidden_size)
 
         self.large_hiddens = nn.ModuleList([
+            nn.Linear(in_features=large_hidden_size, out_features=large_hidden_size), 
+            nn.Linear(in_features=large_hidden_size, out_features=large_hidden_size), 
             nn.Linear(in_features=large_hidden_size, out_features=large_hidden_size), 
             nn.Linear(in_features=large_hidden_size, out_features=large_hidden_size)
         ])
@@ -140,19 +142,22 @@ def train():
 
     for epoch in range(num_epochs):
         print("Epoch: ", epoch)
+
+        # Adjust the learning rate so that it does large modifications at first, before slowly finetuning to the minimum
+        # for param in optimizer.param_groups:
+        #     param = learning_rate / (epoch + 1)
+        
         for i, (images, labels) in enumerate(train_loader):
 
-            # Get the outputs
-            output = model(images)
+            images = images.to(device)
 
-            for i in range(6):
-                saved_images[i] = images[i].clone().detach().permute(1, 2, 0)
-                model_saved_images[i] = output[i].clone().detach().permute(1, 2, 0)
+            # Get the outputs
+            output = model(images).to(device)
             
             # Measure the loss
-            # loss = criterion(output, images) + criterion_two(output, images)
+            loss = criterion(output, images) + criterion_two(output, images)
             # loss = criterion(output, images)
-            loss = criterion_two(output, images)
+            # loss = criterion_two(output, images)
 
             # Backpropogate the error
             loss.backward()
@@ -187,7 +192,8 @@ def view_imgs():
 
 
 if __name__ == '__main__':
-    model = NeuralNet()
+    model = NeuralNet().to(device)
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
     criterion_two = nn.MSELoss()
