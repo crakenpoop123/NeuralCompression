@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Init some variables about the model
-learning_rate = 0.002
+learning_rate = 0.001
 num_epochs = 15
 batch = 1000
 saved_images = torch.zeros([6, 32, 32, 3])
@@ -47,7 +47,7 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 # Variables about the model architecture
-convs_out_channels = 27
+convs_out_channels = 108
 
 input_size = 32 * 32 * 3
 hidden_in_size = 26 * 26 * convs_out_channels
@@ -60,8 +60,8 @@ class NeuralNet(nn.Module):
 
         # Convolutional neural nets
         self.convs = nn.ModuleList([
-            nn.Conv2d(in_channels=3, out_channels=9, kernel_size=3, stride=1), 
-            nn.Conv2d(in_channels=9, out_channels=convs_out_channels, kernel_size=3, stride=1)
+            nn.Conv2d(in_channels=3, out_channels=18, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=18, out_channels=convs_out_channels, kernel_size=3, stride=1)
         ])
 
         # This is shown to reduce overfitting and improve conv performance
@@ -141,7 +141,7 @@ def train():
     print("started training")
 
     for epoch in range(num_epochs):
-        print("Epoch: ", epoch)
+        print("Epoch: ", epoch + 1)
 
         # Adjust the learning rate so that it does large modifications at first, before slowly finetuning to the minimum
         # for param in optimizer.param_groups:
@@ -153,11 +153,15 @@ def train():
 
             # Get the outputs
             output = model(images).to(device)
+
+            for i in range(6):
+                saved_images = images[i].clone().detach().cpu().permute(1, 2, 0)
+                model_saved_images = output[i].clone().detach().cpu().permute(1, 2, 0)
             
             # Measure the loss
-            loss = criterion(output, images) + criterion_two(output, images)
+            # loss = criterion(output, images) + criterion_two(output, images)
             # loss = criterion(output, images)
-            # loss = criterion_two(output, images)
+            loss = criterion_two(output, images)
 
             # Backpropogate the error
             loss.backward()
@@ -171,6 +175,8 @@ def train():
 
 
 def view_imgs():
+
+    
 
     # Show the uncompressed images
     plt.figure(1)
