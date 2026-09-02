@@ -11,9 +11,9 @@ import time
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # Init some variables about the model
-learning_rate = 0.0001
+learning_rate = 0.00004
 num_epochs = 15
-batch = 100
+batch = 1000
 saved_images = torch.randn([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
 
@@ -49,7 +49,7 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 # Variables about the model architecture
-convs_out_channels = 15
+convs_out_channels = 27
 
 input_size = 32 * 32 * 3
 hidden_in_size = 28 * 28 * convs_out_channels
@@ -128,7 +128,7 @@ class NeuralNet(nn.Module):
 
         start_time = time.time_ns()
 
-        # # Large input linear block
+        # Large input linear block
         for hidden_in in self.input_hiddens:
             intermediary = hidden_in(intermediary)
 
@@ -212,10 +212,6 @@ def train():
             # model.zero_grad()
 
             print(f'loss: {loss}')
-
-            del loss
-            del images
-            del output
 
 def get_data():
 
