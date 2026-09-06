@@ -59,7 +59,7 @@ convs_mid_channels = 9
 convs_kernel_size = 5
 
 input_size = 32 * 32 * 3
-hidden_in_size = 24 * 24 * convs_out_channels
+hidden_in_size = 4 * 4 * convs_out_channels
 hidden_size = 12 * 12
 large_hidden_size = 16 * 16
 
@@ -79,7 +79,6 @@ class NeuralNet(nn.Module):
         ])
 
         self.shrink_convs = nn.ModuleList([
-            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1),
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1),
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1),
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1),
@@ -152,6 +151,10 @@ class NeuralNet(nn.Module):
         # Conv block
         for mid_conv in self.convs:
             intermediary = self.conv_block(mid_conv, intermediary, True)
+
+        # Conv block
+        for shrink_conv in self.shrink_convs:
+            intermediary = self.conv_block(shrink_conv, intermediary)
 
         intermediary = self.conv_block(self.out_conv, intermediary)
 
