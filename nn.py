@@ -119,7 +119,7 @@ class NeuralNet(nn.Module):
 
     # This improves conv performance by mixing the conv block with a pool
     def conv_block(self, conv, input, residual=False):
-        intermediary = conv(input)
+        intermediary = rte
         # intermediary = self.pool(intermediary)
         intermediary = F.relu(intermediary)
 
@@ -146,14 +146,17 @@ class NeuralNet(nn.Module):
 
         start_time = time.time_ns()
 
+        print("in_conv: ", self.in_conv)
         intermediary = self.conv_block(self.in_conv, intermediary)
 
         # Conv block
         for mid_conv in self.convs:
+            print("mid_conv: ", mid_conv)
             intermediary = self.conv_block(mid_conv, intermediary, True)
 
         # Conv block
         for shrink_conv in self.shrink_convs:
+            print("shrink_conv: ", shrink_conv)
             intermediary = self.conv_block(shrink_conv, intermediary)
 
         intermediary = self.conv_block(self.out_conv, intermediary)
