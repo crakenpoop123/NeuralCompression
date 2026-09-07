@@ -1,3 +1,7 @@
+# temp test
+import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -14,13 +18,13 @@ print("device: ", device)
 
 
 # Init some variables about the model
-learning_rate = 0.0005
-num_epochs = 20
+learning_rate = 0.002
+num_epochs = 10
 batch = 1000
 saved_images = torch.randn([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
 
-data_size = 60000
+data_size = 50000
 steps_per_epoch = math.floor(data_size/batch)
 training_loss = [0] * steps_per_epoch * num_epochs
 training_steps = list(range(steps_per_epoch * num_epochs))
@@ -64,8 +68,9 @@ test_loader = torch.utils.data.DataLoader(
 
 # Variables about the model architecture
 convs_out_channels = 27
-convs_mid_channels = 9
+convs_mid_channels = 16
 convs_kernel_size = 5
+convs_padding_size = (convs_kernel_size - 1) / 2
 
 input_size = 32 * 32 * 3
 hidden_in_size = 4 * 4 * convs_out_channels
@@ -77,17 +82,18 @@ class NeuralNet(nn.Module):
         super(NeuralNet, self).__init__()
 
         # Used to determine what percent of the time different parts of the code takes
+        # Initialised to inf so all parts return 0% on the first pass
         self.step_time = math.inf
 
         # Convolutional neural nets
-        self.in_conv = nn.Conv2d(in_channels=3, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1)
+        self.in_conv = nn.Conv2d(in_channels=3, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         self.convs = nn.ModuleList([
-            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=2),
-            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=2),
-            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=2),
-            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=2),
-            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=2)
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
         self.shrink_convs = nn.ModuleList([
@@ -103,7 +109,7 @@ class NeuralNet(nn.Module):
 
         # This is shown to reduce overfitting and improve conv performance
         # I have stopped using it because it causes a very blurry output
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=1)
+        # self.pool = nn.MaxPool2d(kernel_size=2, stride=1)
 
 
         # Input hidden layers
@@ -291,12 +297,13 @@ def train():
             print(f'step: {step}')
 
             # Add loss and step to arrays
-            training_loss[step] = loss
+            # uses .item() to only store the loss value, not the loss tensor
+            # This reduces bloat because the loss tensor also stores everything necessary for the backprop
+            training_loss[step] = loss.item()
 
-            print("saving loss took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
+            print("saving loss took ", (time.time_ns() - start_time) / model.step_time * 100, "% of the time")
 
             model.step_time = time.time_ns() - step_start_time
-            print("step time: ",model.step_time)
 
 
 
@@ -316,7 +323,7 @@ def get_data():
 
         model_saved_images[i] = output[i].clone().detach().cpu().permute(1, 2, 0)
 
-    print("saving images took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
+    print("saving images took ", time.time_ns() - start_time)
     
 
 
@@ -338,7 +345,7 @@ def view_imgs():
 
     plt.figure(3)
     plt.title("Training loss over time")
-    plt.subplot(training_steps.numpy(), training_loss.numpy())
+    plt.plot(training_steps, training_loss)
 
 
     plt.show()
