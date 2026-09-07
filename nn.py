@@ -19,7 +19,7 @@ print("device: ", device)
 
 # Init some variables about the model
 learning_rate = 0.0005
-num_epochs = 50
+num_epochs = 1
 batch = 128
 saved_images = torch.randn([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
@@ -352,7 +352,7 @@ def train():
             # uses .item() to only store the loss value, not the loss tensor
             # This reduces bloat because the loss tensor also stores everything necessary for the backprop
             training_loss.append(loss.item())
-            training_steps.append(step)
+            training_steps.append(step / steps_per_epoch)
 
             print("saving loss took ", (time.time_ns() - start_time) / model.step_time * 100, "% of the time")
 
@@ -399,6 +399,8 @@ def view_imgs():
     plt.figure(3)
     plt.title("Training loss over time")
     plt.plot(training_steps, training_loss)
+    plt.xlabel("Epoch number")
+    plt.ylabel("Loss")
 
 
     plt.show()
