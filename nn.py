@@ -15,15 +15,15 @@ print("device: ", device)
 
 # Init some variables about the model
 learning_rate = 0.0001
-num_epochs = 10
+num_epochs = 20
 batch = 1000
 saved_images = torch.randn([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
+
 data_size = 60000
 steps_per_epoch = math.floor(data_size/batch)
 training_loss = []
 training_steps = []
-
 
 # Datasets
 
@@ -101,6 +101,7 @@ class NeuralNet(nn.Module):
         # I have stopped using it because it causes a very blurry output
         self.pool = nn.MaxPool2d(kernel_size=2, stride=1)
 
+
         # Input hidden layers
         self.input_hiddens = nn.ModuleList([
             nn.Linear(in_features=hidden_in_size, out_features=hidden_in_size), 
@@ -126,11 +127,12 @@ class NeuralNet(nn.Module):
 
         self.output_layer = nn.Linear(in_features=large_hidden_size, out_features=input_size)
 
+
     # This improves conv performance by mixing the conv block with a pool
     def conv_block(self, conv, input, residual=False):
         intermediary = conv(input)
         # intermediary = self.pool(intermediary)
-        # intermediary = F.relu(intermediary)
+        intermediary = F.relu(intermediary)
 
         # Make the layer a residual
         if residual:
@@ -138,13 +140,13 @@ class NeuralNet(nn.Module):
 
         return intermediary
 
+
     def linear_residual(self, linear, input):
         # Pass the output through the linear layer
         output = linear(input)
 
         # Add the original value to create a residual stream
         return output + input
-
 
     # Main forward pass func
     def forward(self, input):
@@ -178,13 +180,10 @@ class NeuralNet(nn.Module):
         intermediary = intermediary.view(-1, hidden_in_size)
         # print("size: ", intermediary.size())
 
-        start_time = time.time_ns()
-
         # Large input linear block
         for hidden_in in self.input_hiddens:
             intermediary = self.linear_residual(hidden_in, intermediary)
 
-        print("input linear block took ", time.time_ns() - start_time)
 
         # Hidden layer
         intermediary = self.hidden_layer(intermediary)
@@ -194,7 +193,7 @@ class NeuralNet(nn.Module):
         intermediary = self.large_hidden_layer(intermediary)
         
         # start_time = time.time_ns()
-
+        
         # Large intermediary block
         for large_hidden in self.large_hiddens:
             intermediary = self.linear_residual(large_hidden, intermediary)
@@ -311,6 +310,7 @@ def view_imgs():
     plt.figure(3)
     plt.title("Training loss over time")
     plt.subplot(training_steps.numpy(), training_loss.numpy())
+
 
     plt.show()
 
