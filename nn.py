@@ -3,16 +3,18 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.nn.functional as F
 import torch.nn as nn
-import numpy as np
+# import numpy as np
 import matplotlib.pyplot as plt
 import time
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("device: ", device)
+
 
 # Init some variables about the model
-learning_rate = 0.00004
-num_epochs = 15
+learning_rate = 0.0001
+num_epochs = 20
 batch = 1000
 saved_images = torch.randn([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
@@ -39,22 +41,30 @@ test_dataset = torchvision.datasets.CIFAR10(
 train_loader = torch.utils.data.DataLoader(
     dataset = train_dataset, 
     batch_size=batch, 
-    shuffle=True
+    shuffle=True, 
+    pin_memory=True, 
+    num_workers=2, 
+    persistent_workers=True
 )
 
 test_loader = torch.utils.data.DataLoader(
     dataset = test_dataset, 
     batch_size=batch, 
-    shuffle=True
+    shuffle=True, 
+    pin_memory=True, 
+    num_workers=2, 
+    persistent_workers=True
 )
 
 # Variables about the model architecture
-convs_out_channels = 27
+convs_mid1_channels = 9
+convs_mid_channels = 27
+convs_out_channels = 81
 
 input_size = 32 * 32 * 3
-hidden_in_size = 28 * 28 * convs_out_channels
-hidden_size = 12 * 12
-large_hidden_size = 16 * 16
+hidden_in_size = 14 * 14 * convs_out_channels
+hidden_size = 24 * 24
+large_hidden_size = 32 * 32
 
 class NeuralNet(nn.Module):
     def __init__(self):
@@ -62,26 +72,25 @@ class NeuralNet(nn.Module):
 
         # Convolutional neural nets
         self.convs = nn.ModuleList([
-            nn.Conv2d(in_channels=3, out_channels=9, kernel_size=3, stride=1), 
-            # nn.Conv2d(in_channels=9, out_channels=9, kernel_size=3, stride=1), 
-            # nn.Conv2d(in_channels=9, out_channels=9, kernel_size=3, stride=1), 
-            nn.Conv2d(in_channels=9, out_channels=convs_out_channels, kernel_size=3, stride=1)
+            nn.Conv2d(in_channels=3, out_channels=convs_mid1_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid1_channels, out_channels=convs_mid1_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid1_channels, out_channels=convs_mid1_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid1_channels, out_channels=convs_mid_channels, groups=3, kernel_size=3, stride=1),  
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, groups=3, kernel_size=3, stride=1), 
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_out_channels, groups=3, kernel_size=3, stride=1) # Goes to ln 85
         ])
 
         # This is shown to reduce overfitting and improve conv performance
         # I have stopped using it because it causes a very blurry output
         self.pool = nn.MaxPool2d(kernel_size=2, stride=1)
 
-        # Input hidden layers
-        self.input_hiddens = nn.ModuleList([
-            nn.Linear(in_features=hidden_in_size, out_features=hidden_in_size), 
-            # nn.Linear(in_features=hidden_in_size, out_features=hidden_in_size), 
-            # nn.Linear(in_features=hidden_in_size, out_features=hidden_in_size), 
-            nn.Linear(in_features=hidden_in_size, out_features=hidden_in_size)
-        ])
 
         # Linear layers
-        self.input_layer = nn.Linear(in_features=input_size, out_features=hidden_size)
+        self.input_layer = nn.Linear(in_features=hidden_in_size, out_features=hidden_size)
+
 
         self.hidden_layer = nn.Linear(in_features=hidden_in_size, out_features=hidden_size)
 
@@ -100,7 +109,7 @@ class NeuralNet(nn.Module):
     def conv_block(self, input, index):
         intermediary = self.convs[index](input)
         # intermediary = self.pool(intermediary)
-        intermediary = F.relu(intermediary)
+        # intermediary = F.relu(intermediary)
 
         return intermediary
 
@@ -112,27 +121,19 @@ class NeuralNet(nn.Module):
 
         # print("size: ", intermediary.size())
 
-        start_time = time.time_ns()
+        # start_time = time.time_ns()
 
         # Conv block
         for i in range(len(self.convs)):
             intermediary = self.conv_block(intermediary, i)
 
-        print("conv block took ", time.time_ns() - start_time)
+        # print("conv block took ", time.time_ns() - start_time)
 
         # print("size: ", intermediary.size())
 
         # Format for linear layers
         intermediary = intermediary.view(-1, hidden_in_size)
         # print("size: ", intermediary.size())
-
-        start_time = time.time_ns()
-
-        # Large input linear block
-        for hidden_in in self.input_hiddens:
-            intermediary = hidden_in(intermediary)
-
-        print("input linear block took ", time.time_ns() - start_time)
 
         # Hidden layer
         intermediary = self.hidden_layer(intermediary)
@@ -141,13 +142,13 @@ class NeuralNet(nn.Module):
         # Large hidden layer
         intermediary = self.large_hidden_layer(intermediary)
         
-        start_time = time.time_ns()
+        # start_time = time.time_ns()
 
         # Large intermediary block
         for large_hidden in self.large_hiddens:
             intermediary = large_hidden(intermediary)
 
-        print("large intermediary block took ", time.time_ns() - start_time)
+        # print("large intermediary block took ", time.time_ns() - start_time)
 
         # print("size: ", intermediary.size())
         # Output layer
@@ -176,18 +177,18 @@ def train():
         for i, (images, labels) in enumerate(train_loader):
             del labels
             
-            start_time = time.time_ns()
+            # start_time = time.time_ns()
 
             images = images.to(device)
 
-            print("image loading took ", time.time_ns() - start_time)
+            # print("image loading took ", time.time_ns() - start_time)
             
-            start_time = time.time_ns()
+            # start_time = time.time_ns()
 
             # Get the outputs
             output = model(images).to(device)
             
-            print("model took ", time.time_ns() - start_time)
+            # print("model took ", time.time_ns() - start_time)
 
             
             # Measure the loss
@@ -195,21 +196,21 @@ def train():
             # loss = criterion(output, images)
             loss = criterion_two(output, images)
 
-            start_time = time.time_ns()
+            # start_time = time.time_ns()
 
             # Backpropogate the error
             loss.backward()
             
-            print("backprop took ", time.time_ns() - start_time)
+            # print("backprop took ", time.time_ns() - start_time)
             
-            start_time = time.time_ns()
+            # start_time = time.time_ns()
 
             # Step the Adams optimizer
             optimizer.step()
             
-            print("optimizer took ", time.time_ns() - start_time)
+            # print("optimizer took ", time.time_ns() - start_time)
 
-            # model.zero_grad()
+            model.zero_grad()
 
             print(f'loss: {loss}')
 
@@ -256,11 +257,16 @@ def view_imgs():
 if __name__ == '__main__':
     model = NeuralNet().to(device)
 
+
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     criterion = nn.CrossEntropyLoss()
     criterion_two = nn.MSELoss()
 
+    train_start_time = time.time_ns()
+
     train()
+
+    print("training took: ", (time.time_ns() - train_start_time) / (10^9), " seconds")
 
     get_data()
 
