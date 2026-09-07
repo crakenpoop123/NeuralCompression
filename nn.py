@@ -14,7 +14,7 @@ print("device: ", device)
 
 
 # Init some variables about the model
-learning_rate = 0.0001
+learning_rate = 0.0005
 num_epochs = 20
 batch = 1000
 saved_images = torch.randn([6, 32, 32, 3])
@@ -22,8 +22,9 @@ model_saved_images = torch.zeros([6, 32, 32, 3])
 
 data_size = 60000
 steps_per_epoch = math.floor(data_size/batch)
-training_loss = []
-training_steps = []
+training_loss = [0] * steps_per_epoch * num_epochs
+training_steps = list(range(steps_per_epoch * num_epochs))
+
 
 # Datasets
 
@@ -74,6 +75,9 @@ large_hidden_size = 16 * 16
 class NeuralNet(nn.Module):
     def __init__(self):
         super(NeuralNet, self).__init__()
+
+        # Used to determine what percent of the time different parts of the code takes
+        self.step_time = math.inf
 
         # Convolutional neural nets
         self.in_conv = nn.Conv2d(in_channels=3, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1)
@@ -155,16 +159,24 @@ class NeuralNet(nn.Module):
 
         # print("size: ", intermediary.size())
 
-        # start_time = time.time_ns()
+        start_time = time.time_ns()
 
         # print("in_conv: ", self.in_conv)
         intermediary = self.conv_block(self.in_conv, intermediary)
+
+        print("In conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
+
+        start_time = time.time_ns()
 
         # Conv block
         for mid_conv in self.convs:
             # print("mid_conv: ", mid_conv)
             intermediary = self.conv_block(mid_conv, intermediary, True)
 
+        print("mid conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
+
+        start_time = time.time_ns()
+        
         # Conv block
         for shrink_conv in self.shrink_convs:
             # print("shrink_conv: ", shrink_conv)
@@ -172,7 +184,7 @@ class NeuralNet(nn.Module):
 
         intermediary = self.conv_block(self.out_conv, intermediary)
 
-        # print("conv block took ", time.time_ns() - start_time)
+        print("Shrink conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
 
         # print("size: ", intermediary.size())
 
@@ -180,35 +192,40 @@ class NeuralNet(nn.Module):
         intermediary = intermediary.view(-1, hidden_in_size)
         # print("size: ", intermediary.size())
 
+        start_time = time.time_ns()
+        
         # Large input linear block
         for hidden_in in self.input_hiddens:
             intermediary = self.linear_residual(hidden_in, intermediary)
 
+        print("input linear took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
 
+
+        start_time = time.time_ns()
+        
         # Hidden layer
         intermediary = self.hidden_layer(intermediary)
 
         # print("size: ", intermediary.size())
         # Large hidden layer
         intermediary = self.large_hidden_layer(intermediary)
+
+        print("large hidden and hidden linear took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
+
         
-        # start_time = time.time_ns()
+        start_time = time.time_ns()
         
         # Large intermediary block
         for large_hidden in self.large_hiddens:
             intermediary = self.linear_residual(large_hidden, intermediary)
 
-        # print("large intermediary block took ", time.time_ns() - start_time)
+        print("large intermediary block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
 
-        # print("size: ", intermediary.size())
         # Output layer
         intermediary = self.output_layer(intermediary)
 
-        # print("size: ", intermediary.size())
         # Format to the same as inputs
         intermediary = intermediary.view(-1, 3, 32, 32)
-
-        # print("output size(): ", intermediary.size())
 
         return intermediary
 
@@ -216,6 +233,7 @@ class NeuralNet(nn.Module):
 
 # Main training loop 
 def train():
+
     # Zero the grad so it doesn't have any weird errors
     model.zero_grad()
 
@@ -225,51 +243,62 @@ def train():
         print("Epoch: ", epoch + 1)
         
         for i, (images, labels) in enumerate(train_loader):
+
+            print("full step took ",model.step_time)
+            
+            step_start_time = time.time_ns()
+
             del labels
             
             # start_time = time.time_ns()
 
             images = images.to(device)
 
-            # print("image loading took ", time.time_ns() - start_time)
+            # print("image loading took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
             
-            # start_time = time.time_ns()
+            start_time = time.time_ns()
 
             # Get the outputs
             output = model(images).to(device)
             
-            # print("model took ", time.time_ns() - start_time)
+            print("model took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
 
             
             # Measure the loss
-            # loss = criterion(output, images) + criterion_two(output, images)
-            # loss = criterion(output, images)
             loss = criterion(output, images)
 
-            # start_time = time.time_ns()
+            start_time = time.time_ns()
 
             # Backpropogate the error
             loss.backward()
             
-            # print("backprop took ", time.time_ns() - start_time)
+            print("backprop took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
             
-            # start_time = time.time_ns()
+            start_time = time.time_ns()
 
             # Step the Adams optimizer
             optimizer.step()
             
-            # print("optimizer took ", time.time_ns() - start_time)
+            print("optimizer took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
 
             model.zero_grad()
 
             step = epoch * steps_per_epoch + i
 
+            start_time = time.time_ns()
+
             print(f'loss: {loss}')
             print(f'step: {step}')
 
             # Add loss and step to arrays
-            training_loss.append(loss)
-            training_steps.append(step)
+            training_loss[step] = loss
+
+            print("saving loss took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
+
+            model.step_time = time.time_ns() - step_start_time
+            print("step time: ",model.step_time)
+
+
 
 def get_data():
 
@@ -287,7 +316,7 @@ def get_data():
 
         model_saved_images[i] = output[i].clone().detach().cpu().permute(1, 2, 0)
 
-    print("saving images took ", time.time_ns() - start_time)
+    print("saving images took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
     
 
 
