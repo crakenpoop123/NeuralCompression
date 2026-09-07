@@ -76,7 +76,7 @@ class NeuralNet(nn.Module):
         super(NeuralNet, self).__init__()
 
         # Convolutional neural nets
-        self.in_conv = nn.Conv2d(in_channels=3, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1), 
+        self.in_conv = nn.Conv2d(in_channels=3, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1)
 
         self.convs = nn.ModuleList([
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=2),
@@ -157,17 +157,17 @@ class NeuralNet(nn.Module):
 
         # start_time = time.time_ns()
 
-        print("in_conv: ", self.in_conv)
+        # print("in_conv: ", self.in_conv)
         intermediary = self.conv_block(self.in_conv, intermediary)
 
         # Conv block
         for mid_conv in self.convs:
-            print("mid_conv: ", mid_conv)
+            # print("mid_conv: ", mid_conv)
             intermediary = self.conv_block(mid_conv, intermediary, True)
 
         # Conv block
         for shrink_conv in self.shrink_convs:
-            print("shrink_conv: ", shrink_conv)
+            # print("shrink_conv: ", shrink_conv)
             intermediary = self.conv_block(shrink_conv, intermediary)
 
         intermediary = self.conv_block(self.out_conv, intermediary)
@@ -244,7 +244,7 @@ def train():
             # Measure the loss
             # loss = criterion(output, images) + criterion_two(output, images)
             # loss = criterion(output, images)
-            loss = criterion_two(output, images)
+            loss = criterion(output, images)
 
             # start_time = time.time_ns()
 
@@ -320,8 +320,7 @@ if __name__ == '__main__':
 
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-    criterion = nn.CrossEntropyLoss()
-    criterion_two = nn.MSELoss()
+    criterion = nn.MSELoss()
 
     train_start_time = time.time_ns()
 
