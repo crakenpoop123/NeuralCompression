@@ -2,14 +2,19 @@ import os
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 import torch
+
+# Optimizes the code because I have static kernels 
+torch.backends.cudnn.benchmark = True
+
 import torchvision
 import torchvision.transforms as transforms
-import torch.nn.functional as F
 import torch.nn as nn
 import matplotlib.pyplot as plt
 import time
 import math
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("device: ", device)
 
 # Variables about training
 
@@ -55,8 +60,6 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("device: ", device)
 
 
 # Variables for monitoring training
@@ -276,6 +279,8 @@ def train():
             # Zero the gradient to prevent gradient accumulation
             model.zero_grad()
 
+            # Update the step
+            step = epoch * steps_per_epoch + i
 
             # Diagnostic data about the training
             print(f"Model gave a loss of: {loss.item():.4f} at step {step}")
@@ -285,9 +290,6 @@ def train():
 
             # Save the training step, in fractional epochs
             training_steps.append(step / steps_per_epoch)
-
-            # Increase the step count
-            step += 1
 
 
 def get_data():

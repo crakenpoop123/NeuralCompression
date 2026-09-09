@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 import time
 import math
 
+# Optimizes the code because I have static kernels 
+torch.backends.cudnn.benchmark = True
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print("device: ", device)
