@@ -19,7 +19,7 @@ print("device: ", device)
 
 # Init some variables about the model
 learning_rate = 0.0005
-num_epochs = 6
+num_epochs = 50
 batch = 128
 saved_images = torch.zeros([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
@@ -347,9 +347,9 @@ def train():
             # Get the outputs
             output = model(images).to(device)
 
-            if i == 0:
-                saved_images[epoch] = images[0].clone().detach().cpu().permute(1, 2, 0)
-                model_saved_images[epoch] = output[0].clone().detach().cpu().permute(1, 2, 0)
+            # if i == 0:
+            #     saved_images[epoch] = images[0].clone().detach().cpu().permute(1, 2, 0)
+            #     model_saved_images[epoch] = output[0].clone().detach().cpu().permute(1, 2, 0)
             
             print("model took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
 
@@ -454,7 +454,7 @@ if __name__ == '__main__':
 
     print("training took: ", (time.time_ns() - train_start_time) / (10^9), " seconds")
 
-    # get_data()
+    get_data()
 
     view_imgs()
 
