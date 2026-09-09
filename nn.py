@@ -19,9 +19,9 @@ print("device: ", device)
 
 # Init some variables about the model
 learning_rate = 0.0005
-num_epochs = 5
+num_epochs = 6
 batch = 128
-saved_images = torch.randn([6, 32, 32, 3])
+saved_images = torch.zeros([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
 
 data_size = 50000
@@ -222,9 +222,9 @@ class NeuralNet(nn.Module):
         #     intermediary = self.conv_block(shrink_conv, intermediary)
 
         # Out conv block
-        intermediary = self.conv_block(self.out_conv, intermediary, True)
+        intermediary = self.conv_block(self.out_conv, intermediary)
 
-        # print("8 * 4 * 4: ", intermediary.size())
+        # print("8 * 8 * 8: ", intermediary.size())
 
 
         # print("out conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
@@ -281,7 +281,7 @@ class NeuralNet(nn.Module):
 
         # print("8 * 16 * 16: ", intermediary.size())
 
-        intermediary = self.upsample(intermediary)
+        # intermediary = self.upsample(intermediary)
 
         intermediary = self.conv_block(self.conv_8_9, intermediary)
  
@@ -346,6 +346,10 @@ def train():
 
             # Get the outputs
             output = model(images).to(device)
+
+            if i == 0:
+                saved_images[epoch] = images[0].clone().detach().cpu().permute(1, 2, 0)
+                model_saved_images[epoch] = output[0].clone().detach().cpu().permute(1, 2, 0)
             
             print("model took ", (time.time_ns() - start_time) /model.step_time * 100, "% of the time")
 
@@ -450,7 +454,7 @@ if __name__ == '__main__':
 
     print("training took: ", (time.time_ns() - train_start_time) / (10^9), " seconds")
 
-    get_data()
+    # get_data()
 
     view_imgs()
 
