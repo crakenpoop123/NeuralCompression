@@ -169,9 +169,7 @@ class NeuralNet(nn.Module):
 
         return output
         
-
-
-    def forward(self, input):
+    def encode(self, input):
         if view_data_sizes: 
             print(f"{batch} * 3 * 32 * 32: ", input.size())
 
@@ -202,6 +200,14 @@ class NeuralNet(nn.Module):
 
         # Shrink the channel dimensions to the choke
         intermediary = self.conv_block(self.conv_mid_choke, intermediary)
+
+    def decode(self, input):
+        pass
+
+
+    def forward(self, input):
+
+        intermediary = self.encode(input)
 
         if view_data_sizes: 
             print(f"{batch} * {choke_channels} * 8 * 8: ", intermediary.size())
