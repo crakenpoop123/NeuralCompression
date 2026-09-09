@@ -138,6 +138,7 @@ class NeuralNet(nn.Module):
         elif conv.in_channels == conv.out_channels:
             output = output + input
 
+        # Apply the ReLU activation function
         output = self.relu(output)
 
         return output
