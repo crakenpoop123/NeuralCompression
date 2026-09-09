@@ -189,7 +189,7 @@ class NeuralNet(nn.Module):
         intermediary = self.conv_block(self.in_conv, intermediary)
 
         # print("16 * 32 * 32: ", intermediary.size())
-
+    
 
         # print("in_conv: ", self.in_conv)
         intermediary = self.conv_block(self.in_conv_2, intermediary, True)
