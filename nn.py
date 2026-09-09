@@ -19,7 +19,7 @@ print("device: ", device)
 
 # Init some variables about the model
 learning_rate = 0.0005
-num_epochs = 1
+num_epochs = 5
 batch = 128
 saved_images = torch.randn([6, 32, 32, 3])
 model_saved_images = torch.zeros([6, 32, 32, 3])
@@ -89,8 +89,17 @@ class NeuralNet(nn.Module):
         # Convolutional neural nets
         self.in_conv = nn.Conv2d(in_channels=3, out_channels=convs_mid0_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
-        self.convs = nn.ModuleList([
+        self.in_conv_2 = nn.Conv2d(in_channels=convs_mid0_channels, out_channels=convs_mid0_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+
+        self.code_convs = nn.ModuleList([
             nn.Conv2d(in_channels=convs_mid0_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        ])
+
+        self.decode_convs = nn.ModuleList([
+            nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
             nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
@@ -127,20 +136,22 @@ class NeuralNet(nn.Module):
 
         self.output_layer = nn.Linear(in_features=large_hidden_size, out_features=input_size)
 
-        self.conv_16_1 = nn.Conv2d(in_channels=1, out_channels=8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_16_1 = nn.Conv2d(in_channels=1, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
-        self.conv_8 = nn.Conv2d(in_channels=8, out_channels=8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_16_8 = nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+
+        self.conv_8_9 = nn.Conv2d(in_channels=8, out_channels=convs_mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         self.upsample = nn.Upsample(scale_factor=2)
 
-        self.conv_16 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_16 = nn.Conv2d(in_channels=convs_mid_channels, out_channels=convs_mid0_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
-        self.conv_final = nn.Conv2d(in_channels=16, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_final = nn.Conv2d(in_channels=convs_mid0_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
 
 
     # This improves conv performance by mixing the conv block with a pool
-    def conv_block(self, conv, input, pool=False, residual=False):
+    def conv_block(self, conv, input, pool=False):
         intermediary = conv(input)
         intermediary = self.relu(intermediary)
 
@@ -149,7 +160,7 @@ class NeuralNet(nn.Module):
             intermediary = self.pool(intermediary)
 
         # Make the layer a residual
-        elif residual:
+        elif conv.in_channels == conv.out_channels:
             intermediary = intermediary + input
 
         return intermediary
@@ -167,25 +178,39 @@ class NeuralNet(nn.Module):
         # print("size: ", input.size())
         intermediary = input
 
+        # print("3 * 32 * 32: ", intermediary.size())
+
         # print("size: ", intermediary.size())
 
         start_time = time.time_ns()
 
-        # print("in_conv: ", self.in_conv)
-        intermediary = self.conv_block(self.in_conv, intermediary, True)
 
-        # print("1000 * 16 * 16 * 16: ", intermediary.size())
+        # print("in_conv: ", self.in_conv)
+        intermediary = self.conv_block(self.in_conv, intermediary)
+
+        # print("16 * 32 * 32: ", intermediary.size())
+
+
+        # print("in_conv: ", self.in_conv)
+        intermediary = self.conv_block(self.in_conv_2, intermediary, True)
+
+        # print("16 * 16 * 16: ", intermediary.size())
 
         # print("In conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
 
         start_time = time.time_ns()
 
         # Conv block
-        for mid_conv in self.convs:
+        for code_conv in self.code_convs:
             # print("mid_conv: ", mid_conv)
-            intermediary = self.conv_block(mid_conv, intermediary)
+            intermediary = self.conv_block(code_conv, intermediary)
 
-        # print("1000 * 9 * 16 * 16: ", intermediary.size())
+        # print("9 * 16 * 16: ", intermediary.size())
+
+        intermediary = self.conv_block(self.conv_16_8, intermediary, True)
+
+        
+        # print("9 * 8 * 8: ", intermediary.size())
 
         # print("mid conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
 
@@ -199,7 +224,7 @@ class NeuralNet(nn.Module):
         # Out conv block
         intermediary = self.conv_block(self.out_conv, intermediary, True)
 
-        # print("1000 * 8 * 8 * 8: ", intermediary.size())
+        # print("8 * 4 * 4: ", intermediary.size())
 
 
         # print("out conv block took ", (time.time_ns() - start_time) / self.step_time * 100, "% of the time")
@@ -254,16 +279,21 @@ class NeuralNet(nn.Module):
         # Makes it 8 * 8 * 8
         # intermediary = self.conv_block(self.conv_16_1, intermediary, True)
 
-        # print("1000 * 8 * 16 * 16: ", intermediary.size())
+        # print("8 * 16 * 16: ", intermediary.size())
 
-        intermediary = self.conv_block(self.conv_8, intermediary)
+        intermediary = self.upsample(intermediary)
+
+        intermediary = self.conv_block(self.conv_8_9, intermediary)
  
-        # print("1000 * 8 * 8 * 8: ", intermediary.size())
+        # print("9 * 8 * 8: ", intermediary.size())
 
         # Makes it 8 * 16 * 16
         intermediary = self.upsample(intermediary)
 
-        # print("8 * 16 * 16: ", intermediary.size())
+        # print("9 * 16 * 16: ", intermediary.size())
+
+        for decode_conv in self.decode_convs:
+            intermediary = self.conv_block(decode_conv, intermediary)
 
         # Makes it 16 * 16 * 16
         intermediary = self.conv_block(self.conv_16, intermediary)
