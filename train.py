@@ -52,6 +52,7 @@ print("device: ", device)
 
 # Init some variables
 batch = 128
+learning_rate = 0.001
 
 
 
@@ -191,3 +192,19 @@ class NeuralNet(nn.Module):
         output = self.sigmoid(intermediary)
 
         return output
+
+def train():
+    pass
+
+if __name__ == "__main__":
+    # Init the model
+    model = NeuralNet()
+
+    # Init the optimizer
+    optimizer = torch.optim.AdamW(lr=learning_rate)
+
+    # Init the loss criterion
+    criterion = nn.L1Loss()
+
+    # Start training
+    train()
