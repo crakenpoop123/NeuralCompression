@@ -2,10 +2,6 @@ import os
 os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 
 import torch
-
-# Optimizes the code because I have static kernels 
-torch.backends.cudnn.benchmark = True
-
 import torchvision
 import torchvision.transforms as transforms
 import torch.nn as nn
@@ -19,23 +15,31 @@ print("device: ", device)
 # Variables about training
 
 batch = 128
-learning_rate = 0.001
-num_epochs = 1
+learning_rate = 0.004
+late_learning_rate = 0.001
+num_epochs = 50
 
 
 # Datasets
 
-train_dataset = torchvision.datasets.CIFAR10(
+transform = transforms.Compose([
+    transforms.Resize((160, 160)),
+    transforms.ToTensor()
+])
+
+train_dataset = torchvision.datasets.Imagenette(
     root = "./data",
-    train = True,
-    transform = transforms.ToTensor(),
+    size="160px",
+    split="train",
+    transform = transform,
     download = True
 )
 
-test_dataset = torchvision.datasets.CIFAR10(
+test_dataset = torchvision.datasets.Imagenette(
     root = "./data",
-    train = False,
-    transform = transforms.ToTensor(),
+    size="160px",
+    split="val",
+    transform = transform,
     download = True
 )
 
@@ -60,18 +64,19 @@ test_loader = torch.utils.data.DataLoader(
 )
 
 
+# 226.63 seconds per epoch for model before doubling channels with each pool
 
 
 # Variables for monitoring training
 
 # Will increase by 1 each step
 step = 0
-data_size = 50000
+data_size = 9469
 steps_per_epoch = math.ceil(data_size / batch)
 
 # View the compressed and uncompressed images
-saved_images = torch.zeros([6, 32, 32, 3])
-model_saved_images = torch.zeros([6, 32, 32, 3])
+saved_images = torch.zeros([6, 160, 160, 3])
+model_saved_images = torch.zeros([6, 160, 160, 3])
 # Monitor loss over time
 training_loss = []
 training_steps = []
@@ -82,10 +87,14 @@ view_data_sizes = False
 
 # Variables about the model architecture
 
+# Channel variables
 first_channels = 16
-mid_channels = 9
-choke_channels = 8
+mid_channels = 8
+choke_channels = 6
 
+quantized_states = 255
+
+# Convolutional variables
 convs_kernel_size = 5
 convs_padding_size = (convs_kernel_size - 1) // 2
 
@@ -100,6 +109,13 @@ class NeuralNet(nn.Module):
         # Pools the conv to shrink it
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
 
+
+        # MSE Loss
+        self.mse = nn.MSELoss()
+        
+        # Used for dynamically quantizing the compressed hidden state of the model
+        self.quantized_vals = torch.randn(quantized_states, choke_channels, 10, 10)
+
         # Upsamples the image to grow it
         self.upsample = nn.Upsample(scale_factor=2)
 
@@ -112,16 +128,26 @@ class NeuralNet(nn.Module):
 
 
         # Half the spatial dimensions
-        self.first_shrink_conv = nn.Conv2d(in_channels=first_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.in_shrink_conv = nn.Conv2d(in_channels=first_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         # Half the spatial dimensions, again
-        self.second_shrink_conv = nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-
-        # Accompanies the first upsample
-        self.first_grow_conv = nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.shrink_convs = nn.ModuleList([
+             nn.Conv2d(in_channels=3, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        ])
 
         # Accompanies the second upsample
-        self.second_grow_conv = nn.Conv2d(in_channels=first_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.grow_convs = nn.ModuleList([
+             nn.Conv2d(in_channels=mid_channels * 8, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=mid_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        ])
+
+        # Accompanies the first upsample
+        self.out_grow_conv = nn.Conv2d(in_channels=first_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
 
         # Increase the channel dimensions from 3 (RGB) to first
@@ -131,35 +157,65 @@ class NeuralNet(nn.Module):
         self.out_conv = nn.Conv2d(in_channels=first_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         # Changes the channel dimension from mid to choke
-        self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels, out_channels=choke_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels * 8, out_channels=choke_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         # Changes the channel dimension from choke to mid
-        self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+
+        # Changes the channel dimension from mid to first
+        self.conv_mid_first = nn.Conv2d(in_channels=mid_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+
+        # Changes the channel dimension from first to mid
+        self.conv_first_mid = nn.Conv2d(in_channels=first_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
 
         # Apply a residual stream for encoding
         self.encode_convs = nn.ModuleList([
-            nn.Conv2d(in_channels=first_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
             nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
         # Apply a residual stream for decoding
         self.decode_convs = nn.ModuleList([
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
+            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
-    def conv_block(self, conv, input, pool=False):
+    def get_most_similar_state(self, input):
+        # Setup variables to handle similarity comparison
+        best_loss = math.inf
+        best_state = -1
+        curr_loss = 0
+
+
+        # Iterate through the qunatized states
+        for i in range(quantized_states):
+            # MSE for the current loss
+            curr_loss = self.mse(input, self.quantized_vals[i])
+
+            # Check if this loss is the best yet
+            if curr_loss < best_loss:
+                best_state = i
+                best_loss = curr_loss
+
+        return best_state
+        
+
+    def conv_block(self, conv, input, sample=0):
         # Run the conv
         output = conv(input)
 
         # Pool the matrix
-        if pool:
+        if sample == 1:
             output = self.pool(output)
+        # Upsample the matrix
+        elif sample == -1:
+            output = self.upsample(output)
+
         # Add a residual stream
         elif conv.in_channels == conv.out_channels:
             output = output + input
@@ -171,88 +227,79 @@ class NeuralNet(nn.Module):
         
     def encode(self, input):
         if view_data_sizes: 
-            print(f"{batch} * 3 * 32 * 32: ", input.size())
+            print(f"{batch} * 3 * 160 * 160: ", input.size())
 
-        # Use the first conv layer
-        intermediary = self.conv_block(self.in_conv, input)
 
-        if view_data_sizes: 
-            print(f"{batch} * {first_channels} * 32 * 32: ", intermediary.size())
-
-        # Use the next conv layer, the first shrink
-        intermediary = self.conv_block(self.first_shrink_conv, intermediary, True)
-
-        if view_data_sizes: 
-            print(f"{batch} * {first_channels} * 16 * 16: ", intermediary.size())
-
-        # Apply the encoding residual convs
-        for encode in self.encode_convs:
-            intermediary = self.conv_block(encode, intermediary)
-
-        if view_data_sizes: 
-            print(f"{batch} * {mid_channels} * 16 * 16: ", intermediary.size())
+        intermediary = input
 
         # Half the spatial dimensions
-        intermediary = self.conv_block(self.second_shrink_conv, intermediary, True)
+        for shrink_conv in self.shrink_convs:
+            intermediary = self.conv_block(shrink_conv, intermediary, 1)
+            
+            print("Too lazy to write desired size but size is: ", intermediary.size())
 
         if view_data_sizes: 
-            print(f"{batch} * {mid_channels} * 8 * 8: ", intermediary.size())
+            print(f"{batch} * {mid_channels * 8} * 10 * 10: ", intermediary.size())
+        
 
         # Shrink the channel dimensions to the choke
         intermediary = self.conv_block(self.conv_mid_choke, intermediary)
+        
+        if view_data_sizes: 
+            print(f"{batch} * {choke_channels} * 10 * 10: ", intermediary.size())
+
+        return intermediary
 
     def decode(self, input):
-        pass
+        if view_data_sizes: 
+            print(f"{batch} * {choke_channels} * 10 * 10: ", input.size())
+
+        # Grow the channel dimensions to the mid
+        intermediary = self.conv_block(self.conv_choke_mid, input)
+
+        if view_data_sizes: 
+            print(f"{batch} * {mid_channels * 8} * 10 * 10: ", intermediary.size())
+
+        # Iterate over grow convs
+        for grow_conv in self.grow_convs:
+            # Upsample the data
+            intermediary = self.upsample(intermediary)
+
+            # Apply the accompanying grow conv
+            intermediary = self.conv_block(grow_conv, intermediary)
+
+            print("Too lazy to write desired size but size is: ", intermediary.size())
+
+
+        if view_data_sizes: 
+            print(f"{batch} * 3 * 160 * 160: ", intermediary.size())
+
+        # Apply sigmoid activation function so that outputs are within 0 and 1(range for RGB values)
+        output = torch.sigmoid(intermediary)
+
+        return output
+
+    def quantize(self, input):
+
+
 
 
     def forward(self, input):
 
+        print("--------------------------------------")
+
+        # Encode the image
         intermediary = self.encode(input)
 
-        if view_data_sizes: 
-            print(f"{batch} * {choke_channels} * 8 * 8: ", intermediary.size())
+        # Print the middle data
+        print(f"The data is now at the choke point")
 
-        # The data is now at the choke point
+        intermediary = self.quantize(intermediary)
 
-        # Grow the channel dimensions to the mid
-        intermediary = self.conv_block(self.conv_choke_mid, intermediary)
+        # Decode the image
+        output = self.decode(intermediary)
 
-        if view_data_sizes: 
-            print(f"{batch} * {mid_channels} * 8 * 8: ", intermediary.size())
-
-        # Upsample the data
-        intermediary = self.upsample(intermediary)
-
-        # Use the accompanying grow conv
-        intermediary = self.conv_block(self.first_grow_conv, intermediary)
-
-        if view_data_sizes: 
-            print(f"{batch} * {mid_channels} * 16 * 16: ", intermediary.size())
-
-        # Apply the decoding residual convs
-        for decode in self.decode_convs:
-            intermediary = self.conv_block(decode, intermediary)
-
-        if view_data_sizes: 
-            print(f"{batch} * {first_channels} * 16 * 16: ", intermediary.size())
-
-        # Upsample the data
-        intermediary = self.upsample(intermediary)
-
-        # Apply the accompanying grow conv
-        intermediary = self.conv_block(self.second_grow_conv, intermediary)
-
-        if view_data_sizes: 
-            print(f"{batch} * {first_channels} * 32 * 32: ", intermediary.size())
-
-        # Shrink the channel dimensions to 3 (RGB)
-        intermediary = self.conv_block(self.out_conv, intermediary)
-
-        if view_data_sizes: 
-            print(f"{batch} * 3 * 32 * 32: ", intermediary.size())
-
-        # Apply sigmoid activation function so that outputs are within 0 and 1(range for RGB values)
-        output = torch.sigmoid(intermediary)
+        print("--------------------------------------")
 
         return output
 
@@ -263,6 +310,8 @@ def train():
     model.zero_grad()
 
     for epoch in range(num_epochs):
+        if epoch > 3:
+            optimizer.lr = late_learning_rate
         for i, (images, labels) in enumerate(train_loader):
             # I do not use labels for my model, so I can delete them to save space
             del labels
@@ -290,12 +339,19 @@ def train():
 
             # Diagnostic data about the training
             print(f"Model gave a loss of: {loss.item():.4f} at step {step}")
+            proportion_done = max(0.01, step / (num_epochs * steps_per_epoch))
+            print(f"Training is {proportion_done * 100:.3f}% done ({(time.time() - training_start_time) * (1-proportion_done) / proportion_done:.3f} seconds left)")
 
             # Save the training loss
             training_loss.append(loss.item())
 
             # Save the training step, in fractional epochs
             training_steps.append(step / steps_per_epoch)
+
+            # Clear unnecessary memory
+            del loss
+            del output
+            del images
 
 
 def get_data():
@@ -361,9 +417,8 @@ if __name__ == "__main__":
     train()
 
     # Print the time training took
-    print("Training took ", time.time() - training_start_time)
-
-    print()
+    print(f"Training took {time.time() - training_start_time:.3f} seconds")
+    print(f"This is an average of {(time.time() - training_start_time)/num_epochs:.3f} seconds per epoch")
 
     get_data()
     
