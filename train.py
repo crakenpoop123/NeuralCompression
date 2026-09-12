@@ -147,11 +147,9 @@ def check_for_stability(step):
 
     # Check if loss has stopped improving
     if curr_epoch_loss > (1-average_loss_margin) * last_epoch_loss:
-        learning_rate *= 0.1
-
         # Update optimizer learning rate
         for param_group in optimizer.param_groups:
-            param_group["lr"] = learning_rate
+            param_group["lr"] *= 0.1
 
 
 
