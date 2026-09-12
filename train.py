@@ -120,7 +120,8 @@ class NeuralNet(nn.Module):
         # Used for dynamically quantizing the compressed hidden state of the model
         self.quantized_vals = torch.randn(quantized_states, choke_channels).to(device)
 
-        self.update_quantized_step = 0
+        self.quantized_restart_active = True
+
 
         # Upsamples the image to grow it
         self.upsample = nn.Upsample(scale_factor=2)
@@ -177,24 +178,28 @@ class NeuralNet(nn.Module):
         # Counts up all the values
         counts = torch.bincount(best_matches, minlength=self.quantized_vals.size(0)).float().unsqueeze(1)
 
+        print("quantized_restart_active: ", True if self.quantized_restart_active else False)
 
-        # Find the indices of all quantized vals that were not picked
-        zero_indices = (counts.squeeze() == 0).nonzero(as_tuple=True)[0]
+        # Check if the quantized restart stuff is active
+        if self.quantized_restart_active:
+            # Find the indices of all quantized vals that were not picked
+            zero_indices = (counts.squeeze() == 0).nonzero(as_tuple=True)[0]
 
-        # Check that zero_indices is non_empty
-        if len(zero_indices) > 0:
-            # Get a random vector from the input vals
-            random_idx = torch.randint(0, input.size(0), (len(zero_indices),), device='cuda')
+            # Check that zero_indices is non_empty
+            if len(zero_indices) > 0:
+                # Get a random vector from the input vals
+                random_idx = torch.randint(0, input.size(0), (len(zero_indices),), device='cuda')
 
-            # Update the value of a random quantized val to this random vector
-            self.quantized_vals[zero_indices] = input[random_idx]
+                # Update the value of a random quantized val to this random vector
+                norm_injected_vals = F.normalize(input[random_idx], p=2, dim=1)
+                self.quantized_vals[zero_indices] = norm_injected_vals
         
         # Used to sum all vectors
         total_assigned_vectors = torch.zeros_like(self.quantized_vals)
         
         # Sums the vectors along dimension 0, 
         # using best_matches a mask so that only the values that were actually the best get added
-        total_assigned_vectors.index_add_(0, best_matches, input)
+        total_assigned_vectors.index_add_(0, best_matches.long(), input)
         
         # Preven division by 0
         mask = counts > 0
@@ -202,7 +207,9 @@ class NeuralNet(nn.Module):
         average_vectors = torch.where(mask, total_assigned_vectors / counts, self.quantized_vals)
         
         # Use an Exponential Moving Average to shift the quantized values
-        self.quantized_vals.copy_(self.quantized_vals * (1 - lr) + average_vectors * lr)
+        updated_vals = self.quantized_vals * (1 - lr) + average_vectors * lr
+
+        self.quantized_vals.copy_(F.normalize(updated_vals, p=2, dim=1))
 
     
     def quantize(self, flattened_input):
@@ -215,7 +222,7 @@ class NeuralNet(nn.Module):
             print("Got flattened input for quantization to: ", flattened_input.size())
 
         # Get the best quantization match
-        best_matches = self.get_most_similar_state(flattened_input).to(device, dtype=torch.long)
+        best_matches = self.get_most_similar_state(flattened_input).to(device, dtype=torch.uint8)
 
 
         # Note: best_matches is what the very smallest choke point for the data is
@@ -225,17 +232,9 @@ class NeuralNet(nn.Module):
 
         print(f"Best matches num unique items over total items: {len(torch.unique(best_matches))}/{len(best_matches)}")
 
-        # Create a small chance of non-best matches being activated
-        # Prevents feature collaps
-        
-        # # Get some random probabilities to use for creating the mask
-        # rand_match_prob = torch.rand(size=best_matches.size(), device=device)
-        # # Create the mask
-        # rand_match_mask = torch.where(rand_match_prob < rand_match, True, False).to(device)
-        # # Get some rndom values
-        # rand_match_vals = torch.randint(low=0, high=256, size=best_matches.size(), dtype=torch.uint8, device=device)
-        # # Fill best_matches with the rand vals in the places defined by the mask
-        # best_matches = torch.where(rand_match_mask, rand_match_vals, best_matches)
+    
+        if len(torch.unique(best_matches)) == 256:
+            self.quantized_restart_active = False
 
 
         # Get the quantized versions of the vectors
@@ -247,8 +246,11 @@ class NeuralNet(nn.Module):
             print("Intermediary became size: ", best_matches.size())
 
 
+        quantized_lr = 0.05 
+
         # Shift the quantized vals slightly in the direction of the input
-        self.update_quantized_states(flattened_input.detach(), best_matches.long())
+        self.update_quantized_states(intermediary.detach(), best_matches, quantized_lr)
+
 
         if view_quant_sizes: 
             print("Viewed intermediary as: ", intermediary.size())
@@ -345,9 +347,9 @@ class NeuralNet(nn.Module):
         if view_data_sizes: 
             print(f"The data is now at the choke point")
 
-        intermediary = self.quantize(intermediary.permute(0, 2, 3, 1).reshape(-1, 6))
+        # intermediary = self.quantize(intermediary.permute(0, 2, 3, 1).reshape(-1, 6))
 
-        intermediary = intermediary.view(-1, 10, 10, 6).permute(0, 3, 1, 2)
+        # intermediary = intermediary.view(-1, 10, 10, 6).permute(0, 3, 1, 2)
 
         # Decode the image
         output = self.decode(intermediary)
@@ -464,6 +466,9 @@ if __name__ == "__main__":
 
     # Init the loss criterion
     criterion = nn.L1Loss()
+
+    # Save the current time, so I can see how long training took
+    training_start_time = time.time()
 
     # Start training
     train()
