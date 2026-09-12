@@ -4,7 +4,6 @@ os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 import torch
 import torchvision
 import torchvision.transforms as transforms
-import torch.nn as nn
 import time
 import math
 from torchmetrics.image import StructuralSimilarityIndexMeasure
@@ -19,9 +18,11 @@ print("device: ", device)
 
 batch = 32
 learning_rate = 0.001
-num_epochs = 25
+num_epochs = 10
 
 training_start_time = 0
+#  (1 - this) * curr_avg_loss must be less than prev_avg_loss or lr is decreased
+average_loss_margin = 0.05
 
 # Datasets
 
@@ -65,9 +66,6 @@ test_loader = torch.utils.data.DataLoader(
     num_workers=4, 
     persistent_workers=True
 )
-
-
-# 226.63 seconds per epoch for model before doubling channels with each pool
 
 
 # Variables for monitoring training
@@ -129,11 +127,52 @@ def train():
             # Save the training step, in fractional epochs
             training_steps.append(step / steps_per_epoch)
 
+            # Decrease lr if loss isn't improving
+            check_for_stability(step)
+
             # Clear unnecessary memory
             del loss
             del output
             del images
 
+# Check if the model has stabilised
+def check_for_stability(step):
+    last_epoch_loss = average_loss(step - steps_per_epoch, steps_per_epoch)
+
+    curr_epoch_loss = average_loss(step, steps_per_epoch)
+
+    # Check there are enough loss values to avg over
+    if last_epoch_loss == "False" or curr_epoch_loss == "False":
+        return False
+
+    # Check if loss has stopped improving
+    if curr_epoch_loss > (1-average_loss_margin) * last_epoch_loss:
+        learning_rate *= 0.1
+
+        # Update optimizer learning rate
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = learning_rate
+
+
+
+def average_loss(step, num_to_avg):
+    # Prevent negative indexing
+    if step - num_to_avg < 0:
+        return "False"
+
+    # Prevent div by 0
+    num_to_avg = max(1, num_to_avg)
+
+    total = 0
+
+    # Sum all training losses
+    for i in range(num_to_avg):
+        total += training_loss[step - i]
+
+    # Average using mean
+    mean = total / num_to_avg
+
+    return mean
 
 
 if __name__ == "__main__":
@@ -144,7 +183,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     # Init the loss criterion
-    criterion = StructuralSimilarityIndexMeasure()
+    criterion = StructuralSimilarityIndexMeasure().to(device)
     # criterion = nn.L1Loss()
 
     # Save the current time, so I can see how long training took
