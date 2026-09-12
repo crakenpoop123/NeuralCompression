@@ -18,6 +18,7 @@ print("device: ", device)
 
 batch = 32
 learning_rate = 0.001
+learning_rate_reduction = 0.1
 num_epochs = 10
 
 training_start_time = 0
@@ -102,7 +103,7 @@ def train():
             output = model(images).to(device)
 
             # Measure loss
-            loss = criterion(images, output)
+            loss = criterion(output, images)
 
             # Backpropogate
             loss.backward()
@@ -149,7 +150,8 @@ def check_for_stability(step):
     if curr_epoch_loss > (1-average_loss_margin) * last_epoch_loss:
         # Update optimizer learning rate
         for param_group in optimizer.param_groups:
-            param_group["lr"] *= 0.1
+            param_group["lr"] *= learning_rate_reduction
+            print("Learning rate changed to: ", param_group["lr"])
 
 
 
@@ -196,3 +198,6 @@ if __name__ == "__main__":
 
     # View stuff about the model via view_model.py
     view_model.view(model, test_loader, training_steps, training_loss, device)
+
+    PATH = "./models/model.pth"
+    torch.save(model, PATH)
