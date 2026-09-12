@@ -6,7 +6,8 @@ import torchvision
 import torchvision.transforms as transforms
 import time
 import math
-from torchmetrics.image import StructuralSimilarityIndexMeasure
+import torch.nn as nn
+# from torchmetrics.image import StructuralSimilarityIndexMeasure
 
 import nn as Net
 import view_model
@@ -23,7 +24,9 @@ num_epochs = 10
 
 training_start_time = 0
 #  (1 - this) * curr_avg_loss must be less than prev_avg_loss or lr is decreased
-average_loss_margin = 0.05
+average_loss_margin = 0.005
+
+view_training_progress = False
 
 # Datasets
 
@@ -71,8 +74,9 @@ test_loader = torch.utils.data.DataLoader(
 
 # Variables for monitoring training
 
-# Will increase by 1 each step
+# Used to track loss and some other stuff
 step = 0
+
 data_size = 9469
 steps_per_epoch = math.ceil(data_size / batch)
 
@@ -103,7 +107,7 @@ def train():
             output = model(images).to(device)
 
             # Measure loss
-            loss = criterion(output, images)
+            loss = 1 - criterion(output, images)
 
             # Backpropogate
             loss.backward()
@@ -118,9 +122,12 @@ def train():
             step = epoch * steps_per_epoch + i
 
             # Diagnostic data about the training
-            print(f"Model gave a loss of: {loss.item():.4f} at step {step}")
-            proportion_done = max(0.01, step / (num_epochs * steps_per_epoch))
-            print(f"Training is {proportion_done * 100:.3f}% done ({(time.time() - training_start_time) * (1-proportion_done) / proportion_done:.3f} seconds left)")
+            if view_training_progress:
+                print(f"Model gave a loss of: {loss.item():.4f} at step {step}")
+
+                proportion_done = max(0.01, step / (num_epochs * steps_per_epoch))
+
+                print(f"Training is {proportion_done * 100:.3f}% done ({(time.time() - training_start_time) * (1-proportion_done) / proportion_done:.3f} seconds left)")
 
             # Save the training loss
             training_loss.append(loss.item())
@@ -128,13 +135,26 @@ def train():
             # Save the training step, in fractional epochs
             training_steps.append(step / steps_per_epoch)
 
-            # Decrease lr if loss isn't improving
-            check_for_stability(step)
 
-            # Clear unnecessary memory
-            del loss
-            del output
-            del images
+        # Update the step
+        step = (epoch + 1) * steps_per_epoch
+
+        # Diagnostic data about the training
+        print(f"Model gave a loss of: {loss.item():.4f} at step {step}")
+
+        proportion_done = max(0.01, step / (num_epochs * steps_per_epoch))
+
+        print(f"Training is {proportion_done * 100:.3f}% done ({(time.time() - training_start_time) * (1-proportion_done) / proportion_done:.3f} seconds left)")
+
+        
+        # Decrease lr if loss isn't improving, once per epoch
+        check_for_stability(step)
+    
+    # Clear unnecessary memory when training ends
+    del loss
+    del output
+    del images
+
 
 # Check if the model has stabilised
 def check_for_stability(step):
@@ -148,6 +168,7 @@ def check_for_stability(step):
 
     # Check if loss has stopped improving
     if curr_epoch_loss > (1-average_loss_margin) * last_epoch_loss:
+
         # Update optimizer learning rate
         for param_group in optimizer.param_groups:
             param_group["lr"] *= learning_rate_reduction
@@ -183,8 +204,8 @@ if __name__ == "__main__":
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
     # Init the loss criterion
-    criterion = StructuralSimilarityIndexMeasure().to(device)
-    # criterion = nn.L1Loss()
+    # criterion = StructuralSimilarityIndexMeasure().to(device)
+    criterion = nn.MSELoss()
 
     # Save the current time, so I can see how long training took
     training_start_time = time.time()
@@ -192,6 +213,7 @@ if __name__ == "__main__":
     # Start training
     train()
 
+    
     # Print the time training took
     print(f"Training took {time.time() - training_start_time:.3f} seconds")
     print(f"This is an average of {(time.time() - training_start_time)/num_epochs:.3f} seconds per epoch")
