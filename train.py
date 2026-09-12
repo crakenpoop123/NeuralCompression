@@ -15,9 +15,8 @@ print("device: ", device)
 # Variables about training
 
 batch = 128
-learning_rate = 0.004
-late_learning_rate = 0.001
-num_epochs = 50
+learning_rate = 0.001
+num_epochs = 25
 
 
 # Datasets
@@ -92,10 +91,10 @@ first_channels = 16
 mid_channels = 8
 choke_channels = 6
 
-quantized_states = 255
+quantized_states = 512
 
 # Convolutional variables
-convs_kernel_size = 5
+convs_kernel_size = 9
 convs_padding_size = (convs_kernel_size - 1) // 2
 
 
@@ -114,7 +113,7 @@ class NeuralNet(nn.Module):
         self.mse = nn.MSELoss()
         
         # Used for dynamically quantizing the compressed hidden state of the model
-        self.quantized_vals = torch.randn(quantized_states, choke_channels, 10, 10)
+        self.quantized_vals = torch.randn(quantized_states, choke_channels)
 
         # Upsamples the image to grow it
         self.upsample = nn.Upsample(scale_factor=2)
@@ -122,15 +121,8 @@ class NeuralNet(nn.Module):
         # Apply relu activation function
         self.relu = nn.LeakyReLU(0.1)
 
-        # Apply sigmoid activation function
-        # Replaced with torch.sigmoid
-        # self.sigmoid = nn.Sigmoid()
-
 
         # Half the spatial dimensions
-        self.in_shrink_conv = nn.Conv2d(in_channels=first_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-
-        # Half the spatial dimensions, again
         self.shrink_convs = nn.ModuleList([
              nn.Conv2d(in_channels=3, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
@@ -138,7 +130,7 @@ class NeuralNet(nn.Module):
              nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
-        # Accompanies the second upsample
+        # Double the spatial dimensions
         self.grow_convs = nn.ModuleList([
              nn.Conv2d(in_channels=mid_channels * 8, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
@@ -146,15 +138,6 @@ class NeuralNet(nn.Module):
              nn.Conv2d(in_channels=mid_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
-        # Accompanies the first upsample
-        self.out_grow_conv = nn.Conv2d(in_channels=first_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-
-
-        # Increase the channel dimensions from 3 (RGB) to first
-        self.in_conv = nn.Conv2d(in_channels=3, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-
-        # Decrease the channel dimensions from first to 3 (RGB)
-        self.out_conv = nn.Conv2d(in_channels=first_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         # Changes the channel dimension from mid to choke
         self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels * 8, out_channels=choke_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
@@ -162,48 +145,54 @@ class NeuralNet(nn.Module):
         # Changes the channel dimension from choke to mid
         self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
-        # Changes the channel dimension from mid to first
-        self.conv_mid_first = nn.Conv2d(in_channels=mid_channels, out_channels=first_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-
-        # Changes the channel dimension from first to mid
-        self.conv_first_mid = nn.Conv2d(in_channels=first_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-
-
-        # Apply a residual stream for encoding
-        self.encode_convs = nn.ModuleList([
-            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-        ])
-
-        # Apply a residual stream for decoding
-        self.decode_convs = nn.ModuleList([
-            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            # nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size),
-            nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
-        ])
-
     def get_most_similar_state(self, input):
-        # Setup variables to handle similarity comparison
-        best_loss = math.inf
-        best_state = -1
-        curr_loss = 0
 
+        intermediary = input.to(device)
 
-        # Iterate through the qunatized states
-        for i in range(quantized_states):
-            # MSE for the current loss
-            curr_loss = self.mse(input, self.quantized_vals[i])
+        print("quantized_vals size: ", self.quantized_vals.size())
+        print("intermediary size: ", intermediary.size())
 
-            # Check if this loss is the best yet
-            if curr_loss < best_loss:
-                best_state = i
-                best_loss = curr_loss
+        # Find the difference for each state
+        state_diff = self.quantized_vals.unsqueeze(1) - intermediary.unsqueeze(0)
+
+        # Square the difference to get the loss for each state
+        state_loss = torch.sum(state_diff ** 2, dim=2).to(device)
+
+        # Find the state with the lowest loss
+        best_state = torch.argmin(state_loss, dim=0).to(device)
+        
 
         return best_state
         
+    def quantize(self, input):
+        print("Got input as size: ", input.size())
+
+        flattened_input = input.reshape(-1, 6).to(device)
+
+        print("Flattened input for quantization to: ", flattened_input.size())
+
+        # Get the best quantization match
+        best_matches = self.get_most_similar_state(flattened_input).to(device, dtype=torch.uint8)
+
+
+        # Note: best_matches is what the very smallest choke point for the data is
+
+        print("Got best matches as size: ", best_matches.size())
+
+        intermediary = self.quantized_vals[best_matches]
+
+        print("Intermediary became size: ", best_matches.size())
+
+        # Shift the quantized vals slightly in the direction of the input
+        self.quantized_vals[best_matches] += intermediary[best_matches] / (1 / learning_rate)
+
+        intermediary = intermediary.view(-1, 10, 10)
+
+        print("Viewed intermediary as: ", intermediary.size())
+
+        return intermediary
+
+
 
     def conv_block(self, conv, input, sample=0):
         # Run the conv
@@ -236,7 +225,8 @@ class NeuralNet(nn.Module):
         for shrink_conv in self.shrink_convs:
             intermediary = self.conv_block(shrink_conv, intermediary, 1)
             
-            print("Too lazy to write desired size but size is: ", intermediary.size())
+            if view_data_sizes: 
+                print("Too lazy to write desired size but size is: ", intermediary.size())
 
         if view_data_sizes: 
             print(f"{batch} * {mid_channels * 8} * 10 * 10: ", intermediary.size())
@@ -268,7 +258,8 @@ class NeuralNet(nn.Module):
             # Apply the accompanying grow conv
             intermediary = self.conv_block(grow_conv, intermediary)
 
-            print("Too lazy to write desired size but size is: ", intermediary.size())
+            if view_data_sizes: 
+                print("Too lazy to write desired size but size is: ", intermediary.size())
 
 
         if view_data_sizes: 
@@ -279,27 +270,25 @@ class NeuralNet(nn.Module):
 
         return output
 
-    def quantize(self, input):
-
-
-
 
     def forward(self, input):
-
-        print("--------------------------------------")
+        if view_data_sizes: 
+            print("--------------------------------------")
 
         # Encode the image
         intermediary = self.encode(input)
 
         # Print the middle data
-        print(f"The data is now at the choke point")
+        if view_data_sizes: 
+            print(f"The data is now at the choke point")
 
         intermediary = self.quantize(intermediary)
 
         # Decode the image
         output = self.decode(intermediary)
 
-        print("--------------------------------------")
+        if view_data_sizes: 
+            print("--------------------------------------")
 
         return output
 
@@ -310,8 +299,6 @@ def train():
     model.zero_grad()
 
     for epoch in range(num_epochs):
-        if epoch > 3:
-            optimizer.lr = late_learning_rate
         for i, (images, labels) in enumerate(train_loader):
             # I do not use labels for my model, so I can delete them to save space
             del labels
