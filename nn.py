@@ -26,9 +26,12 @@ quantized_states = 256
 rand_match = 0.05
 
 # Convolutional variables
-convs_kernel_size = 5
-convs_padding_size = (convs_kernel_size - 1) // 2
-
+convs_kernel_size_1 = 9
+convs_kernel_size_2 = 5
+convs_kernel_size_3 = 3
+convs_padding_size_1 = (convs_kernel_size_1 - 1) // 2
+convs_padding_size_2 = (convs_kernel_size_2 - 1) // 2
+convs_padding_size_3 = (convs_kernel_size_3 - 1) // 2
 
 class NeuralNet(nn.Module):
     def __init__(self):
@@ -59,26 +62,26 @@ class NeuralNet(nn.Module):
 
         # Half the spatial dimensions
         self.shrink_convs = nn.ModuleList([
-             nn.Conv2d(in_channels=3, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
-             nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
-             nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+             nn.Conv2d(in_channels=3, out_channels=mid_channels, kernel_size=convs_kernel_size_1, stride=1, padding=convs_padding_size_1), 
+             nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels * 2, kernel_size=convs_kernel_size_2, stride=1, padding=convs_padding_size_2), 
+             nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels * 4, kernel_size=convs_kernel_size_3, stride=1, padding=convs_padding_size_3), 
             #  nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
         # Double the spatial dimensions
         self.grow_convs = nn.ModuleList([
             #  nn.Conv2d(in_channels=mid_channels * 8, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
-             nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
-             nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
-             nn.Conv2d(in_channels=mid_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+             nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 2, kernel_size=convs_kernel_size_3, stride=1, padding=convs_padding_size_3), 
+             nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels, kernel_size=convs_kernel_size_2, stride=1, padding=convs_padding_size_2), 
+             nn.Conv2d(in_channels=mid_channels, out_channels=3, kernel_size=convs_kernel_size_1, stride=1, padding=convs_padding_size_1)
         ])
 
 
         # Changes the channel dimension from mid to choke
-        self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels * 4, out_channels=choke_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels * 4, out_channels=choke_channels, kernel_size=convs_kernel_size_3, stride=1, padding=convs_padding_size_3)
 
         # Changes the channel dimension from choke to mid
-        self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels * 4, kernel_size=convs_kernel_size_3, stride=1, padding=convs_padding_size_3)
 
     def get_most_similar_state(self, input):
         # Normalise quantized values and input
@@ -225,25 +228,30 @@ class NeuralNet(nn.Module):
         
 
         # Shrink the channel dimensions to the choke
-        intermediary = self.conv_block(self.conv_mid_choke, intermediary)
+        # intermediary = self.conv_block(self.conv_mid_choke, intermediary)
         
-        if view_data_sizes: 
-            print(f"{batch} * {choke_channels} * 10 * 10: ", intermediary.size())
+        # if view_data_sizes: 
+        #     print(f"{batch} * {choke_channels} * 10 * 10: ", intermediary.size())
 
         return intermediary
 
     def decode(self, input):
-        if view_data_sizes: 
-            print(f"{batch} * {choke_channels} * 10 * 10: ", input.size())
+        # if view_data_sizes: 
+        #     print(f"{batch} * {choke_channels} * 10 * 10: ", input.size())
 
-        # Grow the channel dimensions to the mid
-        intermediary = self.conv_block(self.conv_choke_mid, input)
+        # # Grow the channel dimensions to the mid
+        # intermediary = self.conv_block(self.conv_choke_mid, input)
+
+        intermediary = input
 
         if view_data_sizes: 
             print(f"{batch} * {mid_channels * 8} * 10 * 10: ", intermediary.size())
 
         # Iterate over grow convs
         for grow_conv in self.grow_convs:
+            if view_data_sizes: 
+                print("Size before upsample in grow convs: ", intermediary.size())
+
             # Upsample the data
             intermediary = self.upsample(intermediary)
 

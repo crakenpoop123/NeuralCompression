@@ -20,11 +20,12 @@ print("device: ", device)
 batch = 32
 learning_rate = 0.001
 learning_rate_reduction = 0.1
+max_lr_reductions = 2
 num_epochs = 25
 
 training_start_time = 0
-#  If the loss hasn't decreased by this * loss, after 1 epoch, learning rate gets decreased
-average_loss_margin = 0.025
+#  If the loss hasn't decreased by this * loss after 1 epoch, learning rate gets decreased
+average_loss_margin = 0.01
 
 view_training_progress = False
 
@@ -151,6 +152,7 @@ def train():
         
         # Decrease lr if loss isn't improving, once per epoch
         check_for_stability(step - 1)
+        
     
     # Clear unnecessary memory when training ends
     del loss
@@ -175,8 +177,10 @@ def check_for_stability(step, num_epochs = 1):
 
         # Update optimizer learning rate
         for param_group in optimizer.param_groups:
-            param_group["lr"] *= learning_rate_reduction
-            print("Learning rate changed to: ", param_group["lr"])
+            # Ensure the lr doesn't drop too low
+            if param_group["lr"] > 10^-(max_lr_reductions) * learning_rate:
+                param_group["lr"] *= learning_rate_reduction
+                print("Learning rate changed to: ", param_group["lr"])
 
 
 
@@ -225,7 +229,7 @@ if __name__ == "__main__":
 
 
     # Save the model
-    PATH = "./models/model.pth"
+    PATH = "./models/model2.pth"
     torch.save(model, PATH)
 
     # View stuff about the model via view_model.py
