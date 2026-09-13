@@ -62,9 +62,8 @@ if __name__ == "__main__":
 
     loaded_model.eval()
 
-    # Import the model from nn.py
-    model = Net.NeuralNet().to(device)
+    # I previously was passing in the randomly initiated model, not the loaded model
 
 
     # View stuff about the model via view_model.py
-    view_model.view(model, test_loader, [], [], device)
+    view_model.view(loaded_model, test_loader, [], [], device)

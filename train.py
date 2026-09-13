@@ -20,11 +20,11 @@ print("device: ", device)
 batch = 32
 learning_rate = 0.001
 learning_rate_reduction = 0.1
-num_epochs = 10
+num_epochs = 25
 
 training_start_time = 0
-#  (1 - this) * curr_avg_loss must be less than prev_avg_loss or lr is decreased
-average_loss_margin = 0.005
+#  If the loss hasn't decreased by this * loss, after 1 epoch, learning rate gets decreased
+average_loss_margin = 0.025
 
 view_training_progress = False
 
@@ -107,7 +107,7 @@ def train():
             output = model(images).to(device)
 
             # Measure loss
-            loss = 1 - criterion(output, images)
+            loss = criterion(output, images)
 
             # Backpropogate
             loss.backward()
@@ -139,8 +139,10 @@ def train():
         # Update the step
         step = (epoch + 1) * steps_per_epoch
 
+        avg_loss = average_loss(step - 1, steps_per_epoch)
+
         # Diagnostic data about the training
-        print(f"Model gave a loss of: {loss.item():.4f} at step {step}")
+        print(f"Model gave a loss of: {avg_loss} at step {step}")
 
         proportion_done = max(0.01, step / (num_epochs * steps_per_epoch))
 
@@ -148,7 +150,7 @@ def train():
 
         
         # Decrease lr if loss isn't improving, once per epoch
-        check_for_stability(step)
+        check_for_stability(step - 1)
     
     # Clear unnecessary memory when training ends
     del loss
@@ -157,14 +159,16 @@ def train():
 
 
 # Check if the model has stabilised
-def check_for_stability(step):
-    last_epoch_loss = average_loss(step - steps_per_epoch, steps_per_epoch)
+def check_for_stability(step, num_epochs = 1):
+    last_epoch_loss = average_loss(step - num_epochs * steps_per_epoch, steps_per_epoch)
 
     curr_epoch_loss = average_loss(step, steps_per_epoch)
 
     # Check there are enough loss values to avg over
     if last_epoch_loss == "False" or curr_epoch_loss == "False":
         return False
+
+    print(f"loss changed by {curr_epoch_loss / last_epoch_loss - 1} of prev")
 
     # Check if loss has stopped improving
     if curr_epoch_loss > (1-average_loss_margin) * last_epoch_loss:
@@ -178,7 +182,7 @@ def check_for_stability(step):
 
 def average_loss(step, num_to_avg):
     # Prevent negative indexing
-    if step - num_to_avg < 0:
+    if step - num_to_avg + 1 < 0:
         return "False"
 
     # Prevent div by 0
@@ -205,7 +209,8 @@ if __name__ == "__main__":
 
     # Init the loss criterion
     # criterion = StructuralSimilarityIndexMeasure().to(device)
-    criterion = nn.MSELoss()
+    # criterion = nn.MSELoss()
+    criterion = nn.SmoothL1Loss(beta=0.5)
 
     # Save the current time, so I can see how long training took
     training_start_time = time.time()
@@ -218,8 +223,10 @@ if __name__ == "__main__":
     print(f"Training took {time.time() - training_start_time:.3f} seconds")
     print(f"This is an average of {(time.time() - training_start_time)/num_epochs:.3f} seconds per epoch")
 
-    # View stuff about the model via view_model.py
-    view_model.view(model, test_loader, training_steps, training_loss, device)
 
+    # Save the model
     PATH = "./models/model.pth"
     torch.save(model, PATH)
+
+    # View stuff about the model via view_model.py
+    view_model.view(model, test_loader, training_steps, training_loss, device)

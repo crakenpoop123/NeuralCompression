@@ -62,12 +62,12 @@ class NeuralNet(nn.Module):
              nn.Conv2d(in_channels=3, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
-             nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+            #  nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
         ])
 
         # Double the spatial dimensions
         self.grow_convs = nn.ModuleList([
-             nn.Conv2d(in_channels=mid_channels * 8, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
+            #  nn.Conv2d(in_channels=mid_channels * 8, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels * 4, out_channels=mid_channels * 2, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels * 2, out_channels=mid_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size), 
              nn.Conv2d(in_channels=mid_channels, out_channels=3, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
@@ -75,10 +75,10 @@ class NeuralNet(nn.Module):
 
 
         # Changes the channel dimension from mid to choke
-        self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels * 8, out_channels=choke_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_mid_choke = nn.Conv2d(in_channels=mid_channels * 4, out_channels=choke_channels, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
         # Changes the channel dimension from choke to mid
-        self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels * 8, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
+        self.conv_choke_mid = nn.Conv2d(in_channels=choke_channels, out_channels=mid_channels * 4, kernel_size=convs_kernel_size, stride=1, padding=convs_padding_size)
 
     def get_most_similar_state(self, input):
         # Normalise quantized values and input
